@@ -27,8 +27,8 @@ class Maze:
 	def legal_moves(self, pos):
 		legal = []
 		for action in allActions:
-			if ((pos[0] + action[0]) >= 0) and ((pos[0] + action[0])) < self.maze.shape[0]):
-				if ((pos[1] + action[1]) >= 0) and ((pos[1] + action[1])) < self.maze.shape[1]):
+			if pos[0] + action[0] >= 0 and pos[0] + action[0] < self.maze.shape[0]:
+				if ((pos[1] + action[1]) >= 0) and ((pos[1] + action[1]) < self.maze.shape[1]):
 					if maze[(pos[0] + action[0])][(pos[1] + action[1])] != 1:
 						legal.append(action)
 		return legal
