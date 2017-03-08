@@ -37,6 +37,9 @@ class Agent:
 	def execute(self):
 		pass
 
+	def learn(self, i):
+		pass
+
 class L_agent(Agent):
 	"""an agent that learns a sequence of action that first go down and then right"""
 	def __init__(self, init_state= (4, 1), q_dic= dic):
