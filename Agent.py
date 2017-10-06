@@ -2,7 +2,7 @@ from env_wrapper import *
 
 class Agent:
     """a templete for MDP agent"""
-    def ___init___(self, environment, goal = 0):
+    def ___init___(self, environment, arm, goal = 0):
         """parameters:
         --environment: as name indicates
         --state: same
@@ -15,6 +15,7 @@ class Agent:
         self.time = 0
         self.next_state = None
         self.goal = goal
+        self.arm = arm
 
     def get_action_space(self):
         # TODO: get self.environment.action_space after action_space is implemented
@@ -38,7 +39,7 @@ class Agent:
         info: dict --- value TBD, naive thoughts are to include info for next step
         """
         # TO BE OVERRIDEN for MDP learning purposes.
-        return self.environment.step(action)
+        return self.environment.step(self.arm, action)
 
     def get_reward(self):
         """call this function after taking an action to find reward for the previous action."""
@@ -59,12 +60,12 @@ class Agent:
 
 class SequenceAgent(Agent):
     """An agent that takes in a series of agents and execute their specified actions in order."""
-    def __init__(self, agents_list, environment, goal = 0):
-        Agent.___init___(self, environment, goal)
+    def __init__(self, agents_list, environment, arm, goal = 0):
+        Agent.___init___(self, environment, arm, goal)
         self.agents = agents_list
         self.goal = 0
         for agent in self.agents:
-            if self.environment != agent.environment:
+            if self.environment != agent.environment and self.arm != agent.arm:
                 raise ValueError("Agent cannot execute in current environment!")
 
     def execute(self):

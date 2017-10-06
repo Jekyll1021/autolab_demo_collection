@@ -17,13 +17,15 @@ from sensor_msgs.msg import Image, CameraInfo
 class Environment:
 	def __init__(self, env_time, rewarding_rules = None):
 		"""initialize an environment with 
-			1. robot right arm(so far)
+			1. robot right arm
+			2. robot left arm(so far)
 
 			also with the following parameters:
 			1. env_time: a goal time interval that this environment exists
 			2. time_counter: to keep on track with current time.
 		"""
 		self.psmR = robot("PSM1")
+		self.psmL = robot("PSM2")
 		self.env_time = env_time
 		self.time_counter = 0
 		self.rewarding_rules = rewarding_rules
@@ -39,7 +41,7 @@ class Environment:
 		return [INIT_POS[1], INIT_POS[2]]
 		# TODO: reset apply to the platform and camera also
 
-	def step(self, action):
+	def step(self, arm, action):
 		"""it now takes in a list/tuple of [position, rotation], execute the action(move arm to indicated pos, rot)
 		and returns:"""
 		"""
@@ -57,14 +59,14 @@ class Environment:
 		# observation = action
 		# TODO: check if out of range
 		# Take action
-		obs_pos = self.psmR.get_current_cartesian_position().position
-		obs_rot = tfx.tb_angles(self.psmR.get_current_cartesian_position().rotation)
+		obs_pos = arm.get_current_cartesian_position().position
+		obs_rot = tfx.tb_angles(arm.get_current_cartesian_position().rotation)
 		for i in range(0, 3):
 			pos[i] += obs_pos[i]
 		r1 = obs_rot.yaw_rad
 		r2 = obs_rot.pitch_rad
 		r3 = obs_rot.roll_rad
-		new_rot = tfx.tb_angles(r1 + rot[0], r2 + rot[1], r3 +rot[2], rad = True)
+		new_rot = tfx.tb_angles(r1 + rot[0], r2 + rot[1], r3 + rot[2], rad = True)
 		observation = [pos, new_rot]
 		self.psmR.move_cartesian_frame(tfx.pose(pos, new_rot))
 		self.time_counter += 1

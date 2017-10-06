@@ -270,7 +270,7 @@ class sequenceAgent(Agent):
 			if callable(trainable):
 				agent.learn(100)
 	
-	def take_action(self):
+	def execute(self):
 		for agent in self.agents:
 			new_pos = agent.execute(self.state)
 			self.state = new_pos
@@ -279,5 +279,6 @@ class sequenceAgent(Agent):
 			self.counter += 1
 		if self.counter != len(self.agents):
 			raise ValueError("not all action has been completed correctly!")
+		return self.state
 
 
