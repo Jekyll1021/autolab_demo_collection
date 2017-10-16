@@ -15,7 +15,7 @@ from Box2D.b2 import (world, polygonShape, circleShape, staticBody, dynamicBody,
 PPM = 20.0  # pixels per meter
 TARGET_FPS = 60
 TIME_STEP = 1.0 / TARGET_FPS
-SCREEN_WIDTH, SCREEN_HEIGHT = 640, 480
+SCREEN_WIDTH, SCREEN_HEIGHT = 240, 180
 
 # GOAL_POS = (5, 2)
 # GOAL_ANGLE = 0
@@ -27,8 +27,8 @@ class TestEnv(gym.Env):
 		self.action_space = spaces.Box(low=-10, high=10, shape=(4, ))
 		self.observation_space = spaces.Box(low=-25, high=25, shape=(9, ))
 		self.done = False
-		self.goal_pos = (np.random.sample() * 20, np.random.sample() * 10)
-		self.goal_angle = np.random.sample() * 3
+		self.goal_pos = (2.5, 2.5)
+		self.goal_angle = 0.5
 		self.timesteps = 1000
 		self.origin_dist_pos = 0
 		self.origin_dist_angle = 0
@@ -44,11 +44,11 @@ class TestEnv(gym.Env):
 		# Create the world
 		self.world = world(gravity=(0, 0), doSleep=True)
 
-		self.rod = self.world.CreateDynamicBody(position=(np.random.sample() * 20, np.random.sample() * 10), allowSleep=False, userData='rod')
+		self.rod = self.world.CreateDynamicBody(position=(8.5, 6), allowSleep=False, userData='rod')
 		rodfix = self.rod.CreatePolygonFixture(density=1, box=(0.25, 1), friction=0.0)
 
 		# a target box to move around
-		self.box = self.world.CreateDynamicBody(position=(np.random.sample() * 20, np.random.sample() * 10), allowSleep=False, userData='target')
+		self.box = self.world.CreateDynamicBody(position=(8, 6), allowSleep=False, userData='target')
 		boxfix = self.box.CreatePolygonFixture(density=1, box=(1,1), friction=0.5)
 		self.origin_dist_pos = math.sqrt((self.box.position[0] - self.goal_pos[0])**2 + (self.box.position[1] - self.goal_pos[1])**2)
 		self.origin_dist_angle = abs(self.box.angle - self.goal_angle)
@@ -71,7 +71,7 @@ class TestEnv(gym.Env):
 			p = self.rod.GetWorldPoint(localPoint=(float(action[2]), float(action[3])))
 			self.rod.ApplyForce(f, p, True)
 
-			obs = np.array([self.box.position[0], self.box.position[1], self.box.angle, self.rod.position[0], self.rod.position[1], self.rod.angle, self.goal_pos[0], self.goal_pos[1], self.goal_angle])
+			obs = np.array([self.box.position[0], self.box.position[1], self.box.angle, self.rod.position[0], self.rod.position[1], self.rod.angle])
 
 			self.world.Step(TIME_STEP, 10, 10)
 			self.timesteps -= 1
@@ -89,7 +89,7 @@ class TestEnv(gym.Env):
 				abs(self.box.position[1] - self.goal_pos[1]) <= INTERVAL and abs(self.box.angle - self.goal_angle) <= INTERVAL:
 				reward += 1000
 			
-		return obs, reward, self.done, {}
+		return obs, reward, self.done, np.array(pygame.surfarray.array3d(self.screen)).reshape(SCREEN_WIDTH * SCREEN_HEIGHT * 3, )
 
 	def reset(self):
 		self.__init__()
@@ -97,3 +97,6 @@ class TestEnv(gym.Env):
 
 	def close(self):
 		return
+
+	def get_image(self):
+		return obs = np.array(pygame.surfarray.array3d(self.screen)).reshape(SCREEN_WIDTH * SCREEN_HEIGHT * 3, )
