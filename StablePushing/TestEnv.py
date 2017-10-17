@@ -24,14 +24,16 @@ INTERVAL = 0.1
 
 class TestEnv(gym.Env):
 	def __init__(self):
+		self.screen = pygame.display.set_mode((240, 180), 0, 32)
 		self.action_space = spaces.Box(low=-10, high=10, shape=(4, ))
-		self.observation_space = spaces.Box(low=-25, high=25, shape=(9, ))
+		self.observation_space = spaces.Box(low=-25, high=25, shape=(6, ))
 		self.done = False
 		self.goal_pos = (2.5, 2.5)
 		self.goal_angle = 0.5
 		self.timesteps = 1000
 		self.origin_dist_pos = 0
 		self.origin_dist_angle = 0
+		self.screen.fill((0, 0, 0, 0))
 		self._createWorld()
 
 	def compute_rewards(self):
@@ -58,6 +60,25 @@ class TestEnv(gym.Env):
 		    'rod': (100, 100, 100, 100),
 		}
 
+		def my_draw_polygon(polygon, body, fixture):
+			vertices = [(body.transform * v) * PPM for v in polygon.vertices]
+			vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
+			k = body.userData
+
+			if k == None:
+			    k = 'default'
+
+			pygame.draw.polygon(self.screen, colors[k], vertices, 0)
+
+			# pygame.draw.polygon(self.screen, (,0,0,0), vertices, 5)
+
+
+		polygonShape.draw = my_draw_polygon
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
 	def step(self, action):
 		"""assuming action to be a tuple, (vector x, vector y, point x, point y)"""
 		obs = None
@@ -66,6 +87,7 @@ class TestEnv(gym.Env):
 
 			# vector, point = (action[0], action[1]), (action[2], action[3])
 			# print(vector)
+			self.screen.fill((0, 0, 0, 0))
 
 			f = self.rod.GetWorldVector(localVector=(float(action[0]), float(action[1])))
 			p = self.rod.GetWorldPoint(localPoint=(float(action[2]), float(action[3])))
@@ -75,6 +97,10 @@ class TestEnv(gym.Env):
 
 			self.world.Step(TIME_STEP, 10, 10)
 			self.timesteps -= 1
+
+			for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
 		
 			self.done = bool(
 				# self.screen.get_rect().contains(self.box.get_rect()) or \
@@ -89,14 +115,17 @@ class TestEnv(gym.Env):
 				abs(self.box.position[1] - self.goal_pos[1]) <= INTERVAL and abs(self.box.angle - self.goal_angle) <= INTERVAL:
 				reward += 1000
 			
-		return obs, reward, self.done, np.array(pygame.surfarray.array3d(self.screen)).reshape(SCREEN_WIDTH * SCREEN_HEIGHT * 3, )
+		return obs, reward, self.done, np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
 
 	def reset(self):
 		self.__init__()
-		return np.array([self.box.position[0], self.box.position[1], self.box.angle, self.rod.position[0], self.rod.position[1], self.rod.angle, self.goal_pos[0], self.goal_pos[1], self.goal_angle])
+		return np.array([self.box.position[0], self.box.position[1], self.box.angle, self.rod.position[0], self.rod.position[1], self.rod.angle])
 
 	def close(self):
 		return
 
 	def get_image(self):
-		return obs = np.array(pygame.surfarray.array3d(self.screen)).reshape(SCREEN_WIDTH * SCREEN_HEIGHT * 3, )
+		return np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+	def save_image(self, path):
+		pygame.image.save(self.screen, path)

@@ -27,7 +27,7 @@ def train(num_timesteps):
     env.close()
 
 def main():
-    train(num_timesteps=1e5)
+    train(num_timesteps=1e6)
 
 
 if __name__ == '__main__':
