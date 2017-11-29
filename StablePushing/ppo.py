@@ -7,6 +7,8 @@ import sys
 from StablePushingEnv import *
 from TestEnv import *
 from pposimple import *
+from TestEnv_2 import *
+from TestEnv_1 import *
 
 def train(num_timesteps):
     from baselines.ppo1 import mlp_policy
@@ -17,7 +19,9 @@ def train(num_timesteps):
             hid_size=64, num_hid_layers=2)
     # env = StablePushingEnv()
     env = TestEnv()
-    learn(env, policy_fn, 
+    # env = TestEnv1()
+    # env = TestEnv2()
+    learn(env, policy_fn, "pi", 
             max_timesteps=num_timesteps,
             timesteps_per_batch=2048,
             clip_param=0.2, entcoeff=0.0,
@@ -27,7 +31,7 @@ def train(num_timesteps):
     env.close()
 
 def main():
-    train(num_timesteps=1e6)
+    train(num_timesteps=2000)
 
 
 if __name__ == '__main__':

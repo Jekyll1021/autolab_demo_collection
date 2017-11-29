@@ -79,7 +79,7 @@ def add_vtarg_and_adv(seg, gamma, lam):
         gaelam[t] = lastgaelam = delta + gamma * lam * nonterminal * lastgaelam
     seg["tdlamret"] = seg["adv"] + seg["vpred"]
 
-def learn(env, policy_func, *,
+def learn(env, policy_func, name, *,
         timesteps_per_batch, # timesteps per actor per update
         clip_param, entcoeff, # clipping parameter epsilon, entropy coeff
         optim_epochs, optim_stepsize, optim_batchsize,# optimization hypers
@@ -93,8 +93,8 @@ def learn(env, policy_func, *,
     # ----------------------------------------
     ob_space = env.observation_space
     ac_space = env.action_space
-    pi = policy_func("pi", ob_space, ac_space) # Construct network for new policy
-    oldpi = policy_func("oldpi", ob_space, ac_space) # Network for old policy
+    pi = policy_func(name, ob_space, ac_space) # Construct network for new policy
+    oldpi = policy_func("old"+name, ob_space, ac_space) # Network for old policy
     atarg = tf.placeholder(dtype=tf.float32, shape=[None]) # Target advantage function (if applicable)
     ret = tf.placeholder(dtype=tf.float32, shape=[None]) # Empirical return
 
@@ -176,27 +176,27 @@ def learn(env, policy_func, *,
         if hasattr(pi, "ob_rms"): pi.ob_rms.update(ob) # update running mean/std for policy
 
         assign_old_eq_new() # set old parameter values to new parameter values
-        logger.log("Optimizing...")
-        logger.log(fmt_row(13, loss_names))
+        # logger.log("Optimizing...")
+        # logger.log(fmt_row(13, loss_names))
         # Here we do a bunch of optimization epochs over the data
         for _ in range(optim_epochs):
-            losses = [] # list of tuples, each of which gives the loss for a minibatch
+            # losses = [] # list of tuples, each of which gives the loss for a minibatch
             for batch in d.iterate_once(optim_batchsize):
                 *newlosses, g = lossandgrad(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"], cur_lrmult)
                 adam.update(g, optim_stepsize * cur_lrmult) 
-                losses.append(newlosses)
-            logger.log(fmt_row(13, np.mean(losses, axis=0)))
+            #     losses.append(newlosses)
+            # logger.log(fmt_row(13, np.mean(losses, axis=0)))
 
-        logger.log("Evaluating losses...")
-        losses = []
-        for batch in d.iterate_once(optim_batchsize):
-            newlosses = compute_losses(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"], cur_lrmult)
-            losses.append(newlosses)            
-        meanlosses,_,_ = mpi_moments(losses, axis=0)
-        logger.log(fmt_row(13, meanlosses))
-        for (lossval, name) in zipsame(meanlosses, loss_names):
-            logger.record_tabular("loss_"+name, lossval)
-        logger.record_tabular("ev_tdlam_before", explained_variance(vpredbefore, tdlamret))
+        # logger.log("Evaluating losses...")
+        # losses = []
+        # for batch in d.iterate_once(optim_batchsize):
+        #     newlosses = compute_losses(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"], cur_lrmult)
+        #     losses.append(newlosses)            
+        # meanlosses,_,_ = mpi_moments(losses, axis=0)
+        # logger.log(fmt_row(13, meanlosses))
+        # for (lossval, name) in zipsame(meanlosses, loss_names):
+        #     logger.record_tabular("loss_"+name, lossval)
+        # logger.record_tabular("ev_tdlam_before", explained_variance(vpredbefore, tdlamret))
         lrlocal = (seg["ep_lens"], seg["ep_rets"]) # local values
         listoflrpairs = MPI.COMM_WORLD.allgather(lrlocal) # list of tuples
         lens, rews = map(flatten_lists, zip(*listoflrpairs))
@@ -214,42 +214,63 @@ def learn(env, policy_func, *,
         if MPI.COMM_WORLD.Get_rank()==0:
             logger.dump_tabular()
 
-    for i in range(10):
-        images, acts = generate_rollouts(pi, env, 1000, store_path=i, store_image=True)
-        np.save("image_data_" + str(i) + ".npy", images)
-        np.save("action_data_" + str(i) + ".npy", acts)
-    # image, acts = generate_rollouts(pi, env, 1000, stochastic=True, store_image=True)
-    # np.save("image_data_99.npy", images)
-    # np.save("action_data_99.npy", acts)
+    # print("start packing data:")
+    # for i in range(100):
+    #     # print(i)
+    #     images, acts, obs, rews = generate_rollouts(pi, env, 1000, store_path=i, store_image=False, stochastic=True)
+    #     # np.save("image_data_"+ str(i)+".npy", images)
+    #     np.save("action_data_0_"+ str(i)+".npy", acts)
+    #     np.save("state_data_0_"+ str(i)+".npy", obs)
+    #     np.save("reward_data_0_"+ str(i)+".npy", rews)
+    # images, acts = generate_rollouts(pi, env, 1000, store_path=i, store_image=False, stochastic=False)
+    # np.save("image_data_0_test_fix.npy", images)
+    # np.save("action_data_0_test_fix.npy", acts)
+    # image, acts = generate_rollouts(pi, env, 1000, store_path=99, store_image=True)
+    # np.save("image_data_2_99.npy", images)
+    # np.save("action_data_2_99.npy", acts)
+    return pi
 
-def generate_rollouts(pi, env, horizon, store_path, store_image=False):
+def generate_rollouts(pi, env, horizon, store_path, store_image=False, stochastic=True):
     t = 0
     ac = env.action_space.sample() # not used, just so we have the datatype
     ob = env.reset()
 
     images = []
+    obs = []
     acs = []
+    rews = []
 
-    ac, vpred = pi.act(False, ob)
+    images.append(env.get_image())
+    obs.append(ob)
+
+    ac, vpred = pi.act(stochastic, ob)
     ob, rew, done, image = env.step(ac)
 
     images.append(image)
+    acs.append(ac)
+    obs.append(ob)
+    rews.append(rew)
 
     for i in range(horizon):
-        ac, vpred = pi.act(False, ob)
+        # print("iter:" + str(i))
+        ac, vpred = pi.act(stochastic, ob)
         acs.append(ac)
         ob, rew, done, image = env.step(ac)
-        if i % 100 == 0:
+        rews.append(rew)
+        if i % 100 == 0 and store_image:
             env.save_image("ppo_"+str(store_path) +"_" + str(i) +".png")
         if not done:
             images.append(image)
+            obs.append(obs)
         else:
             ob = env.reset()
-            ac, vpred = pi.act(False, ob)
+            images.append(env.get_image())
+            obs.append(ob)
+            ac, vpred = pi.act(stochastic, ob)
             ob, rew, done, image = env.step(ac)
 
             images.append(image)
-    return np.array(images), np.array(acs)
+    return np.array(images), np.array(acs), np.array(obs), np.array(rews)
 
     # cur_ep_ret = 0 # return in current episode
     # cur_ep_len = 0 # len of current episode
