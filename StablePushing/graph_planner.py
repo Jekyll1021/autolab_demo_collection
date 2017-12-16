@@ -54,8 +54,48 @@ def get_trans_force(centroid, vertex1, vertex2):
 	vertex1, vertex2: two points that defines an edge of the polygon
 
 	output:
-	action(object): action that with magnitude 1 and 
+	action(object): magnitude 1 action with
+	direction as perpendicular to the edge, 
+	point of contact as projection of centroid
 	"""
+	k = ((vertex2[1]-vertex1[1])*(centroid[0]-vertex1[0])-(vertex2[0]-vertex1[0])*(centroid[1]-vertex1[1])) \
+		/((vertex2[1]-vertex1[1])**2+(vertex2[0]-vertex1[0])**2)
+	p = (centroid[0] - k * (vertex2[1] - vertex1[1]), centroid[1] + k * (vertex2[0] - vertex1[0]))
+	v = (centroid[0] - p[0], centroid[1] - p[1])
+	return Action(v, p)
+
+
+def normalize(vector):
+	"""
+	helper function: 
+
+	input:
+	vector: (x, y) force vector
+
+	output:
+	vector: (x, y) force vector with normalized magnitude 1
+	"""
+	mag = math.sqrt(vector[0] ** 2 + vector[1] ** 2)
+	return vector[0] / mag, vector[1] / mag
+
+def get_orientation_force(centroid, vertex):
+	"""
+	helper function:
+
+	input:
+	centroid: (x, y) position of COM of polygon
+	vertex: (x, y) position of point of contact
+
+	output:
+	two action objects: magnitude 1 action with
+	two directions as perpendicular to line connecting centroid and the vertex, 
+	point of contact as the vertex
+
+	Will be further explained in a figure.
+	"""
+	return [Action((centroid[1] - vertex[1], vertex[0] - centroid[0]), vertex), \
+			Action((vertex[1] - centroid[1], centroid[0] - vertex[0]), vertex)]
+
 class Action:
 	def __init__(self, vector, point):
 		"""
@@ -65,7 +105,7 @@ class Action:
 
 		all relative to the local origin of polygon.
 		"""
-		self.vector = vector
+		self.vector = normalize(vector)
 		self.point = point
 
 class PolygonEnv:
@@ -89,5 +129,21 @@ class PolygonEnv:
 		# a target box to move around
 		self.box = self.world.CreateDynamicBody(position=original_pos, allowSleep=False, userData='target')
 		boxfix = self.box.CreatePolygonFixture(density=1, vertices=vertices, friction=0.5)
+
+		# figure out center of mass
 		self.centroid = compute_centroid(vertices)
+
+		self.actions = []
+
+		# figure out actions that relate to translations
+		n = len(vertices)
+		for i in range(n):
+			curr = vertices[(i - n) % n]
+			next = vertices[(i + 1 - n) % n]
+			self.actions.append(get_trans_force(self.centroid, curr, next))
+
+		# figure out actions that relate to orientations
+		for i in range(n):
+			curr = vertices[i]
+			self.actions.extend(get_orientation_force(self.centroid, curr))
 

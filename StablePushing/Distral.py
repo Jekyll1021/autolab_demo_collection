@@ -16,6 +16,9 @@ from TestEnv import *
 from pposimple import *
 from TestEnv_2 import *
 from TestEnv_1 import *
+from ImageEnv import *
+from ImageEnv_1 import *
+from ImageEnv_2 import *
 
 def build_mlp(
         input_placeholder, 
@@ -42,33 +45,37 @@ def train(num_timesteps, iters):
         return mlp_policy.MlpPolicy(name=name, ob_space=ob_space, ac_space=ac_space,
             hid_size=64, num_hid_layers=2)
     env0 = TestEnv()
+    # env0 = ImageEnv()
     model_0 = learn(env0, policy_fn, "pi0", 
             max_timesteps=num_timesteps,
-            timesteps_per_batch=2048,
+            timesteps_per_batch=1000,
             clip_param=0.2, entcoeff=0.0,
             optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=64,
             gamma=0.99, lam=0.95, schedule='linear',
         )
-    # env0.close()
+    env0.close()
 
     env1 = TestEnv1()
+    # env1 = ImageEnv1()
     model_1 = learn(env1, policy_fn, "pi1", 
             max_timesteps=num_timesteps,
-            timesteps_per_batch=2048,
+            timesteps_per_batch=1000,
             clip_param=0.2, entcoeff=0.0,
             optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=64,
             gamma=0.99, lam=0.95, schedule='linear',
         )
-    # env1.close()
+    env1.close()
 
     env2 = TestEnv2()
+    # env2 = ImageEnv2()
     model_2 = learn(env2, policy_fn, "pi2", 
             max_timesteps=num_timesteps,
-            timesteps_per_batch=2048,
+            timesteps_per_batch=1000,
             clip_param=0.2, entcoeff=0.0,
             optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=64,
             gamma=0.99, lam=0.95, schedule='linear',
         )
+    env2.close()
 
     ob_space = env0.observation_space
     ac_space = env0.action_space

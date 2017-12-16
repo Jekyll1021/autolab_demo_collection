@@ -27,7 +27,7 @@ class TestEnv1(gym.Env):
 		# self.screen = pygame.display.set_mode((240, 180), 0, 32)
 		self.action_space = spaces.Box(low=-4, high=4, shape=(3, ))
 		# self.observation_space = spaces.Box(low=-4, high=15, shape=(6, ))
-		self.observation_space = spaces.Box(low=-4, high=15, shape=(3, ))
+		self.observation_space = spaces.Box(low=-4, high=15, shape=(4, ))
 		self.done = False
 		self.goal_pos = (2.5, 2.5)
 		self.goal_angle = 0.5
@@ -107,7 +107,7 @@ class TestEnv1(gym.Env):
 			self.world.Step(TIME_STEP, 10, 10)
 			self.timesteps -= 1
 			# obs = np.array([self.box.position[0], self.box.position[1], self.box.angle, self.rod.position[0], self.rod.position[1], self.rod.angle])
-			obs = np.array([self.box.position[0], self.box.position[1], self.box.angle])
+			obs = np.array([1, self.box.position[0], self.box.position[1], self.box.angle])
 			self.box.linearVelocity[0] = 0.0
 			self.box.linearVelocity[1] = 0.0
 			self.box.angularVelocity = 0.0
@@ -138,7 +138,7 @@ class TestEnv1(gym.Env):
 	def reset(self):
 		self.__init__()
 		# return np.array([self.box.position[0], self.box.position[1], self.box.angle, self.rod.position[0], self.rod.position[1], self.rod.angle])
-		return np.array([self.box.position[0], self.box.position[1], self.box.angle])
+		return np.array([1, self.box.position[0], self.box.position[1], self.box.angle])
 
 	def close(self):
 		# pygame.display.quit()
