@@ -13,10 +13,9 @@ import Box2D
 from Box2D.b2 import (world, polygonShape, circleShape, staticBody, dynamicBody, kinematicBody)
 
 PPM = 20.0  # pixels per meter
-TARGET_FPS = 60
-TIME_STEP = 10.0 / TARGET_FPS
+TIME_STEP = 1
 SCREEN_WIDTH, SCREEN_HEIGHT = 240, 180
-INTERVAL = 0.5
+INTERVAL = 0.1
 
 def compute_centroid(vertices):
 	"""
@@ -158,5 +157,56 @@ class PolygonEnv:
 		self.box.linearVelocity[1] = 0.0
 		self.box.angularVelocity = 0.0
 		return self.box.position, self.box.angle
+
+	def animate(self, list_actions):
+		self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
+		pygame.display.set_caption('example')
+		pygame.display.iconify()
+		self.screen.fill((0, 0, 0, 0))
+		pygame.display.flip()
+		self.box.position = self.original_pos
+		self.box.angle = 0.0
+
+		def my_draw_polygon(polygon, body, fixture):
+			vertices = [(body.transform * v) * PPM for v in polygon.vertices]
+			vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
+			k = body.userData
+
+			if k == None:
+			    k = 'default'
+
+			pygame.draw.polygon(self.screen, (200, 200, 200, 255), vertices, 0)
+
+
+		polygonShape.draw = my_draw_polygon
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+		i = 0
+		pygame.image.save(self.screen, "anim"+str(i)+".png")
+		while list_actions != []:
+			self.screen.fill((0, 0, 0, 0))
+			action = list_actions.pop()
+			vector = action.vector
+			point = action.point
+			f = self.box.GetWorldVector(localVector=vector)
+			p = self.box.GetWorldPoint(localPoint=point)
+			self.box.ApplyForce(f, p, True)
+			self.world.Step(TIME_STEP, 10, 10)
+			self.box.linearVelocity[0] = 0.0
+			self.box.linearVelocity[1] = 0.0
+			self.box.angularVelocity = 0.0
+
+			for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+			pygame.display.flip()
+			i += 1
+			pygame.image.save(self.screen, "anim"+str(i)+".png")
+
+		pygame.display.quit()
+		pygame.quit()
 
 
