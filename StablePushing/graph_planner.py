@@ -18,12 +18,12 @@ class Vertex:
 def euclidean_dist(pos1, pos2):
 	return math.sqrt((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2)
 
-def modified_bfs_planner(polygon_env, horizon=25):
+def modified_bfs_planner(polygon_env, horizon=20):
 	queue = collections.deque()
 	for a in polygon_env.actions:
 		curr_pos, curr_angle = polygon_env.step(polygon_env.original_pos, 0, a)
-		if euclidean_dist(curr_pos, polygon_env.goal_pos) < euclidean_dist(polygon_env.original_pos, polygon_env.goal_pos) + 0.05 and \
-		abs(curr_angle - polygon_env.goal_angle) < abs(polygon_env.goal_angle) + 0.05: 
+		if euclidean_dist(curr_pos, polygon_env.goal_pos) < euclidean_dist(polygon_env.original_pos, polygon_env.goal_pos) and \
+		abs(curr_angle - polygon_env.goal_angle) < abs(polygon_env.goal_angle): 
 			queue.append(Vertex(polygon_env.original_pos, 0, a, 0, None))
 	ending_vertex = None
 	seen = set()
@@ -39,15 +39,94 @@ def modified_bfs_planner(polygon_env, horizon=25):
 			# print('wha')
 			break
 		if (vertex.timestamp > 0 and vertex.timestamp < horizon and \
-			(euclidean_dist(curr_pos, polygon_env.goal_pos) < euclidean_dist(vertex.pos, polygon_env.goal_pos) + 0.05 and \
-			euclidean_dist(curr_pos, polygon_env.goal_pos) < euclidean_dist(polygon_env.original_pos, polygon_env.goal_pos) + 0.05 and \
-			abs(curr_angle - polygon_env.goal_angle) < abs(vertex.angle - polygon_env.goal_angle) + 0.05 and \
-			abs(curr_angle - polygon_env.goal_angle) < abs(polygon_env.goal_angle) + 0.05) and \
+			(euclidean_dist(curr_pos, polygon_env.goal_pos) < euclidean_dist(vertex.pos, polygon_env.goal_pos) and \
+			euclidean_dist(curr_pos, polygon_env.goal_pos) < euclidean_dist(polygon_env.original_pos, polygon_env.goal_pos) and \
+			abs(curr_angle - polygon_env.goal_angle) < abs(vertex.angle - polygon_env.goal_angle) and \
+			abs(curr_angle - polygon_env.goal_angle) < abs(polygon_env.goal_angle)) and \
 			((round(curr_pos[0], 2), round(curr_pos[1], 2), round(curr_angle, 2)) not in seen)) or vertex.timestamp == 0:
 			seen.add((round(curr_pos[0], 2), round(curr_pos[1], 2), round(curr_angle, 2)))
 			for act in polygon_env.actions:
 				queue.append(Vertex(curr_pos, curr_angle, act, vertex.timestamp+1, vertex))
 	return ending_vertex
+
+def greedy_planner(polygon_env, horizon=1, path="", save_image=False):
+	"""0: failed
+	1: succeeded
+	"""
+	
+	queue = collections.deque()
+	actions = []
+	obs = []
+	goal_obs = []
+	label = []
+	goal_img = polygon_env.get_goal_image()
+	for a in polygon_env.actions:
+		curr_pos, curr_angle, prev_image, next_image = polygon_env.step_with_image(polygon_env.original_pos, 0, a, path=path, save_image=save_image)
+		param_a = [x / polygon_env.bounding_circle_radius for x in polygon_env.parametrize_by_bounding_circle(a)]
+
+		actions.append(param_a)
+		obs.append(prev_image)
+		goal_obs.append(next_image)
+		label.append(1)
+
+		# for a2 in polygon_env.actions:
+		# 	if a != a2:
+		# 		param_a2 = [x / polygon_env.bounding_circle_radius for x in polygon_env.parametrize_by_bounding_circle(a2)]
+		# 		actions.append(param_a2)
+		# 		obs.append(prev_image)
+		# 		goal_obs.append(next_image)
+		# 		label.append(0)
+
+		if euclidean_dist(curr_pos, polygon_env.goal_pos) < euclidean_dist(polygon_env.original_pos, polygon_env.goal_pos) and \
+		abs(curr_angle - polygon_env.goal_angle) < abs(polygon_env.goal_angle): 
+			queue.append(Vertex(polygon_env.original_pos, 0, a, 0, None))
+			actions.append(param_a)
+			obs.append(prev_image)
+			goal_obs.append(goal_img)
+			label.append(1)
+		else:
+			actions.append(param_a)
+			obs.append(prev_image)
+			goal_obs.append(goal_img)
+			label.append(0)
+
+	while queue:
+		vertex = queue.pop()
+		curr_pos, curr_angle, prev_image, next_image = polygon_env.step_with_image(vertex.pos, vertex.angle, vertex.action, path=path, save_image=save_image)
+
+		param_a = [x / polygon_env.bounding_circle_radius for x in polygon_env.parametrize_by_bounding_circle(vertex.action)]
+		actions.append(param_a)
+		obs.append(prev_image)
+		goal_obs.append(next_image)
+		label.append(1)
+
+		if euclidean_dist(curr_pos, polygon_env.goal_pos) < euclidean_dist(vertex.pos, polygon_env.goal_pos) and \
+		euclidean_dist(curr_pos, polygon_env.goal_pos) < euclidean_dist(polygon_env.original_pos, polygon_env.goal_pos) and \
+		abs(curr_angle - polygon_env.goal_angle) < abs(vertex.angle - polygon_env.goal_angle) and \
+		abs(curr_angle - polygon_env.goal_angle) < abs(polygon_env.goal_angle):
+			
+			actions.append(param_a)
+			obs.append(prev_image)
+			goal_obs.append(goal_img)
+			label.append(1)
+
+			if (vertex.timestamp >= 0 and vertex.timestamp < horizon):
+				for act in polygon_env.actions:
+					queue.append(Vertex(curr_pos, curr_angle, act, vertex.timestamp+1, vertex))
+
+		else:
+			actions.append(param_a)
+			obs.append(prev_image)
+			goal_obs.append(goal_img)
+			label.append(0)
+
+	pygame.display.quit()
+	pygame.quit()
+
+	return obs, goal_obs, actions, label
+
+
+
 
 def get_steps(ending_vertex):
 	"""backtrack steps from ending vertex"""
@@ -58,7 +137,7 @@ def get_steps(ending_vertex):
 		curr_vertex = curr_vertex.parent
 	return final_acts
 
-def random_matching(polygon_env, horizon=30):
+def random_matching(polygon_env, horizon=10):
 	"""get random matching result scatter plot for one polygon"""
 	curr_pos = polygon_env.original_pos
 	curr_angle = 0
@@ -79,8 +158,8 @@ def generate_data(polygon_vertices_list, batch=1000):
 	bounding_circle_normalized_acts = []
 	while len(obs) < batch:
 		print(len(obs))
-		curr_original_pos = (random.random()*8 + 1, random.random()*4 + 1)
-		curr_goal_pos = (random.random()*8 + 1, random.random()*4 + 1)
+		curr_original_pos = (random.random()*7 + 2, random.random()*3 + 2)
+		curr_goal_pos = (random.random()*7 + 2, random.random()*3 + 2)
 		curr_goal_angle = random.random()*4 % math.pi
 		curr_polygon_vertices = random.choice(polygon_vertices_list)
 		env = PolygonEnv(curr_original_pos, curr_polygon_vertices, curr_goal_pos, curr_goal_angle)
@@ -102,11 +181,7 @@ def generate_symmetric_data(batch=1000):
 	bounding_circle_normalized_acts = []
 	while len(obs) < batch:
 		print(len(obs))
-		n = random.randint(3, 6)
-		curr_original_pos = (random.random()*8 + 1, random.random()*4 + 1)
-		curr_goal_pos = (random.random()*8 + 1, random.random()*4 + 1)
-		curr_goal_angle = random.random()*4 % (2*math.pi/n)
-		curr_polygon_vertices = get_regular_polygon_vertices(n)
+		
 		env = PolygonEnv(curr_original_pos, curr_polygon_vertices, curr_goal_pos, curr_goal_angle)
 		end = modified_bfs_planner(env)
 		act_list = get_steps(end)
@@ -118,13 +193,56 @@ def generate_symmetric_data(batch=1000):
 		bounding_circle_normalized_acts.extend(curr_bn_acts)
 	return np.array(obs), np.array(goal_obs), np.array(acts), np.array(bounding_circle_acts), np.array(bounding_circle_normalized_acts)
 
+def generate_symmetric_discrete_data(batch=1000):
+	obs = []
+	goal_obs = []
+	acts = []
+	bounding_circle_acts = []
+	bounding_circle_normalized_acts = []
+	while len(obs) < batch:
+		print(len(obs))
+		env = get_random_regular_polygon_env()
+		end = modified_bfs_planner(env)
+		act_list = get_steps(end)
+		curr_obs, curr_g_obs, curr_acts, curr_b_acts, curr_bn_acts = env.animate(act_list)
+		obs.extend(curr_obs)
+		goal_obs.extend(curr_g_obs)
+		acts.extend(curr_acts)
+		bounding_circle_acts.extend(curr_b_acts)
+		bounding_circle_normalized_acts.extend(curr_bn_acts)
+	return np.array(obs), np.array(goal_obs), np.array(acts), np.array(bounding_circle_acts), np.array(bounding_circle_normalized_acts)
+
+def generate_greedy_data(batch=1000):
+	obs = []
+	goal_obs = []
+	acts = []
+	labels = []
+	while len(obs) < batch:
+		print(len(obs))
+		env = get_random_regular_polygon_env()
+		curr_obs, curr_goal_obs, curr_actions, curr_labels = greedy_planner(env, save_image=True)
+		obs.extend(curr_obs)
+		goal_obs.extend(curr_goal_obs)
+		acts.extend(curr_actions)
+		labels.extend(curr_labels)
+	return np.array(obs), np.array(goal_obs), np.array(acts), np.array(labels)
 
 def get_regular_polygon_vertices(n):
 	lst = []
-	r = (random.random() + 1)/2
+	# r = (random.random() + 2)/3
+	r = 1
 	for i in range(0, n):
 		lst.append((r * math.cos(2*math.pi*i/n), r * math.sin(2*math.pi*i/n)))
 	return lst
+
+def get_random_regular_polygon_env():
+	n = random.randint(4, 4)
+	curr_original_pos = (random.random()*7 + 2, random.random()*3 + 2)
+	curr_goal_pos = (random.random()*7 + 2, random.random()*3 + 2)
+	curr_goal_angle = random.random()*4 % (2*math.pi/n)
+	curr_polygon_vertices = get_regular_polygon_vertices(n)
+	return PolygonEnv(curr_original_pos, curr_polygon_vertices, curr_goal_pos, curr_goal_angle, use_discrete=True)
+
 
 def main():
 	import argparse
@@ -134,17 +252,36 @@ def main():
 	args = parser.parse_args()
 	# polygon_vertices_list = [[(-1,0),(-1/2, 1),(1/2,1),(1,0),(0,-1)], [(-1,-1),(-1,1),(1,1),(1,-1)], [(-1,1),(1,1),(1,-1)]]
 	for i in range(args.start, args.end):
-		print(i)
-		obs, goal_obs, acts, b_acts, bn_acts = generate_symmetric_data()
-		np.save("sym_data/state_data_"+ str(i)+".npy", obs)
-		np.save("sym_data/goal_state_data_"+ str(i)+".npy", goal_obs)
-		np.save("sym_data/actions_data_"+ str(i)+".npy", acts)
-		np.save("sym_data/bounding_circle_actions_data_"+ str(i)+".npy", b_acts)
-		np.save("sym_data/bounding_circle_normalized_actions_data_"+ str(i)+".npy", bn_acts)
+		print("batch:"+str(i))
+		obs, goal_obs, acts, labels = generate_greedy_data()
+		np.save("greedy_data/state_data_"+ str(i)+".npy", obs)
+		np.save("greedy_data/goal_state_data_"+ str(i)+".npy", goal_obs)
+		np.save("greedy_data/param_action_data_"+ str(i)+".npy", acts)
+		np.save("greedy_data/label_data_"+ str(i)+".npy", labels)
+		# obs, goal_obs, acts, b_acts, bn_acts = generate_symmetric_data()
+		# obs, goal_obs, acts, b_acts, bn_acts = generate_symmetric_discrete_data()
+		# np.save("sym_discrete_data/state_data_"+ str(i)+".npy", obs)
+		# np.save("sym_discrete_data/goal_state_data_"+ str(i)+".npy", goal_obs)
+		# np.save("sym_discrete_data/actions_data_"+ str(i)+".npy", acts)
+		# np.save("sym_discrete_data/bounding_circle_actions_data_"+ str(i)+".npy", b_acts)
+		# np.save("sym_discrete_data/bounding_circle_normalized_actions_data_"+ str(i)+".npy", bn_acts)
+
 	# env = PolygonEnv((8,6), [(-1,0),(-1/2, 1),(1/2,1),(1,0),(0,-1)], (3, 3), 2)
 	# end = modified_bfs_planner(env)
 	# act_list = get_steps(end)
 	# env.animate(act_list)
+
+def debug():
+	# generate_symmetric_discrete_data(batch=1)
+
+	# env = get_random_regular_polygon_env()
+	# i = 0
+	# for act in env.actions:
+	# 	env.step_with_image(env.original_pos, 0, act, "debug_"+str(i), True)
+	# 	i += 1
+
+	generate_greedy_data(batch=1)
+
 
 # def plot_reachability(polygon_env):
 # 	xs_r = []
@@ -178,3 +315,4 @@ def main():
 # 	fig.savefig('plot.png')
 if __name__ == "__main__":
     main()
+    # debug()

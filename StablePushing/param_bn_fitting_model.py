@@ -92,9 +92,9 @@ class ParamBnFittingModel:
 		a11, a12 = tf.split(self.a1, [2, 2], 1)
 		a21, a22 = tf.split(self.a2, [2, 2], 1)
 
-		loss_a0 = tf.sqrt(tf.reduce_sum((y1-a01) ** 2, 1) + tf.reduce_sum((y2-a02) ** 2, 1))
-		loss_a1 = tf.sqrt(tf.reduce_sum((y1-a11) ** 2, 1) + tf.reduce_sum((y2-a12) ** 2, 1))
-		loss_a2 = tf.sqrt(tf.reduce_sum((y1-a21) ** 2, 1) + tf.reduce_sum((y2-a22) ** 2, 1))
+		loss_a0 = tf.sqrt(tf.reduce_sum((y1-a01) ** 2, 1)) + tf.sqrt(tf.reduce_sum((y2-a02) ** 2, 1))
+		loss_a1 = tf.sqrt(tf.reduce_sum((y1-a11) ** 2, 1)) + tf.sqrt(tf.reduce_sum((y2-a12) ** 2, 1))
+		loss_a2 = tf.sqrt(tf.reduce_sum((y1-a21) ** 2, 1)) + tf.sqrt(tf.reduce_sum((y2-a22) ** 2, 1))
 
 		# loss_a0 = tf.reduce_sum((self.y - self.a0)**2, 1)
 		# # print(loss_a0.get_shape())

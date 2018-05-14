@@ -15,9 +15,42 @@ from Box2D.b2 import (world, polygonShape, circleShape, staticBody, dynamicBody,
 from graph_planner import *
 
 PPM = 20.0  # pixels per meter
-TIME_STEP = 1
+TIME_STEP = 1/2
 SCREEN_WIDTH, SCREEN_HEIGHT = 240, 180
-INTERVAL = 0.3
+INTERVAL = 0.1
+
+DIS_CONST = math.sin(math.pi/4)
+
+Discrete_Points = [(1, 0), (DIS_CONST, DIS_CONST), (0, 1), (-DIS_CONST, DIS_CONST), \
+					(-1, 0), (-DIS_CONST, -DIS_CONST), (0, -1), (DIS_CONST, -DIS_CONST)]
+
+def euclidean_dist(pos1, pos2):
+	return math.sqrt((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2)
+
+def line_by_two_pts(p1, p2):
+	"""either of the two: y = kx + b; x = b"""
+	if (p2[0] != p1[0]): # y = kx + b
+		slope = (p2[1] - p1[1])/(p2[0] - p1[0])
+		return (slope, p1[1] - slope*p1[0])
+	else:
+		return (None, p1[0])
+
+def intersect_two_lines(l1, l2):
+	"""
+	each of the line is a tuple of (slope, intercept)/(k, b).
+	two cases to handle: (k, b) -> y = kx+b;
+						 (None, b) -> x = b
+	"""
+	if (l1[0] != None and l2[0] != None and l1[0] != l2[0]):
+		x = (l2[1] - l1[1])/(l1[0] - l2[0])
+		y = l1[0] * x + l1[1]
+		return (x, y)
+	elif l1[0] == None and l2[0] != None:
+		return (l1[1], l2[0]*l1[1] + l2[1])
+	elif l2[0] == None and l1[0] != None:
+		return (l2[1], l1[0]*l2[1] + l1[1])
+	else:
+		return None 
 
 def compute_centroid(vertices):
 	"""
@@ -120,7 +153,7 @@ class Action:
 		return self.vector == other.vector and self.point == self.point
 
 class PolygonEnv:
-	def __init__(self, original_pos, vertices, goal_pos, goal_angle, use_param=True):
+	def __init__(self, original_pos, vertices, goal_pos, goal_angle, use_param=True, use_discrete=False):
 		"""
 		original_pos: define the original position by (x, y) tuple
 		vertices: define the polygon as an ordered list of its vertices (x, y) tuple with the original_pos as (0, 0). 
@@ -154,17 +187,31 @@ class PolygonEnv:
 
 		self.actions = []
 
-		# figure out actions that relate to translations
 		n = len(self.vertices)
-		for i in range(n):
-			curr = self.vertices[(i - n) % n]
-			next = self.vertices[(i + 1 - n) % n]
-			self.actions.append(get_trans_force(self.centroid, curr, next))
 
-		# figure out actions that relate to orientations
-		for i in range(n):
-			curr = self.vertices[i]
-			self.actions.extend(get_orientation_force(self.centroid, curr, use_param))
+		if not use_discrete:
+			# figure out actions that relate to orientations
+			for i in range(n):
+				curr = self.vertices[i]
+				self.actions.extend(get_orientation_force(self.centroid, curr, use_param))
+
+			# figure out actions that relate to translations
+			for i in range(n):
+				curr = self.vertices[(i - n) % n]
+				next = self.vertices[(i + 1 - n) % n]
+				self.actions.append(get_trans_force(self.centroid, curr, next))
+
+		else:
+			discrete_pts_lst = [(p[0]*self.bounding_circle_radius, p[1]*self.bounding_circle_radius) for p in Discrete_Points]
+			for i in range(len(discrete_pts_lst)):
+				for j in range(len(discrete_pts_lst)):
+					if i != j:
+						self.actions.append(self.bounding_param_to_actions(discrete_pts_lst[i], discrete_pts_lst[j]))
+
+		if use_param:
+			self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
+			pygame.display.set_caption('example')
+			pygame.display.iconify()
 
 	def _vertexIterator(self):
 		N = len(self.vertices)
@@ -196,7 +243,7 @@ class PolygonEnv:
 		return (close[0][0] * ratio, close[0][1] * ratio)
 
 	def parametrize_by_bounding_circle(self, action):
-		"""TODO: add doc"""
+		"""parametrize as p1 to p2"""
 		a = (action.vector[0]**2 + action.vector[1]**2)
 		b = (2 * action.point[0] * action.vector[0] + 2 * action.point[1] * action.vector[1])
 		c = (action.point[0] ** 2 + action.point[1] ** 2 - self.bounding_circle_radius ** 2)
@@ -210,6 +257,13 @@ class PolygonEnv:
 			p2 = (action.point[0] + t1 * action.vector[0], action.point[1] + t1 * action.vector[1])
 			return [p1[0], p1[1], p2[0], p2[1]]
 
+	def bounding_param_to_actions(self, p1, p2):
+		line_force = line_by_two_pts(p1, p2)
+		potential_intercepts = [intersect_two_lines(line_force, line_by_two_pts(v['cur'], v['next'])) for v in self._vertexIterator()]
+		potential_intercepts = [p for p in potential_intercepts if p is not None]
+		intercept = sorted(potential_intercepts, key = lambda p: euclidean_dist(p1, p))[0]
+		return Action((p2[0]-p1[0], p2[1]-p1[1]), intercept)
+
 	def step(self, previous_pos, previous_angle, action):
 		self.box.position = previous_pos
 		self.box.angle = previous_angle
@@ -222,7 +276,84 @@ class PolygonEnv:
 		self.box.angularVelocity = 0.0
 		return self.box.position, self.box.angle
 
-	def animate(self, list_actions, save_image=False, max_acts=3):
+	def get_goal_image(self):
+
+		def my_draw_polygon(polygon, body, fixture):
+			vertices = [(body.transform * v) * PPM for v in polygon.vertices]
+			vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
+			k = body.userData
+
+			if k == None:
+			    k = 'default'
+
+			pygame.draw.polygon(self.screen, (200, 200, 200, 255), vertices, 0)
+
+
+		polygonShape.draw = my_draw_polygon
+
+		self.box.position = self.goal_pos
+		self.box.angle = self.goal_angle
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		img = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+		return img
+
+
+	def step_with_image(self, previous_pos, previous_angle, action, path="", save_image=False):
+		self.screen.fill((0, 0, 0, 0))
+
+		def my_draw_polygon(polygon, body, fixture):
+			vertices = [(body.transform * v) * PPM for v in polygon.vertices]
+			vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
+			k = body.userData
+
+			if k == None:
+			    k = 'default'
+
+			pygame.draw.polygon(self.screen, (200, 200, 200, 255), vertices, 0)
+
+
+		polygonShape.draw = my_draw_polygon
+
+		self.box.position = previous_pos
+		self.box.angle = previous_angle
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		prev_ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+		if save_image:
+			pygame.image.save(self.screen, path+"prev.png")
+
+		self.screen.fill((0, 0, 0, 0))
+
+		f = self.box.GetWorldVector(localVector=(action.vector))
+		p = self.box.GetWorldPoint(localPoint=(action.point))
+		self.box.ApplyForce(f, p, True)
+		self.world.Step(TIME_STEP, 10, 10)
+		self.box.linearVelocity[0] = 0.0
+		self.box.linearVelocity[1] = 0.0
+		self.box.angularVelocity = 0.0
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		next_ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+		if save_image:
+			pygame.image.save(self.screen, path+"next.png")
+
+		return self.box.position, self.box.angle, prev_ob, next_ob
+		
+	def animate(self, list_actions, save_image=True, max_acts=3):
+		"""taking in a list of actions in reverse order, generate animation when rolling out data and pack action/state/goal"""
 		self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
 		pygame.display.set_caption('example')
 		pygame.display.iconify()
@@ -258,7 +389,11 @@ class PolygonEnv:
 					fixture.shape.draw(body, fixture)
 
 		goal_ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+		if save_image:
+			pygame.image.save(self.screen, "goal.png")
 		goal_obs.append(goal_ob)
+
+		self.screen.fill((0, 0, 0, 0))
 
 		self.box.position = self.original_pos
 		self.box.angle = 0.0
@@ -267,7 +402,7 @@ class PolygonEnv:
 				for fixture in body.fixtures:
 					fixture.shape.draw(body, fixture)
 		
-		i = 0
+		ind = 0
 
 		set_actions = set([(a.vector[0], a.vector[1], a.point[0], a.point[1]) for a in list_actions])
 		p_act = []
@@ -288,7 +423,7 @@ class PolygonEnv:
 		bounding_circle_normalized_acts.append(bn_p_act)
 
 		if save_image:
-			pygame.image.save(self.screen, "anim"+str(i)+".png")
+			pygame.image.save(self.screen, "anim"+str(ind)+".png")
 		while list_actions != []:
 			self.screen.fill((0, 0, 0, 0))
 			action = list_actions.pop()
@@ -307,9 +442,9 @@ class PolygonEnv:
 					fixture.shape.draw(body, fixture)
 
 			pygame.display.flip()
-			i += 1
+			ind += 1
 			if save_image:
-				pygame.image.save(self.screen, "anim"+str(i)+".png")
+				pygame.image.save(self.screen, "anim"+str(ind)+".png")
 
 			set_actions = set([(a.vector[0], a.vector[1], a.point[0], a.point[1]) for a in list_actions])
 			p_act = []
@@ -337,3 +472,106 @@ class PolygonEnv:
 		pygame.quit()
 
 		return obs, goal_obs, acts, bounding_circle_acts, bounding_circle_normalized_acts
+
+	def rollout_model_policy(self, model, save_image_path, save_image=True, horizon=50):
+		"""rollout for double bn fitting"""
+
+		discrete_pts_lst = [(p[0]*self.bounding_circle_radius, p[1]*self.bounding_circle_radius) for p in Discrete_Points]
+
+		self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
+		pygame.display.set_caption('example')
+		pygame.display.iconify()
+		self.screen.fill((0, 0, 0, 0))
+		pygame.display.flip()
+
+		def my_draw_polygon(polygon, body, fixture):
+			vertices = [(body.transform * v) * PPM for v in polygon.vertices]
+			vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
+			k = body.userData
+
+			if k == None:
+			    k = 'default'
+
+			pygame.draw.polygon(self.screen, (200, 200, 200, 255), vertices, 0)
+
+		polygonShape.draw = my_draw_polygon
+
+		self.box.position = self.goal_pos
+		self.box.angle = self.goal_angle
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		goal_ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+		if save_image:
+			pygame.image.save(self.screen, save_image_path+"goal.png")
+
+		self.screen.fill((0, 0, 0, 0))
+
+		self.box.position = self.original_pos
+		self.box.angle = 0.0
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+		if save_image:
+			pygame.image.save(self.screen, save_image_path+"anim0.png")
+
+		closest = 0
+		closest_dist = euclidean_dist(self.box.position, self.goal_pos) + 0.1*abs(self.box.angle - self.goal_angle)
+
+		for i in range(horizon):
+			self.screen.fill((0, 0, 0, 0))
+			raw_p1, raw_p2 = model.predict(ob, goal_ob)
+			p1 = discrete_pts_lst[int(round(raw_p1)) % 8]
+			p2 = discrete_pts_lst[int(round(raw_p2)) % 8]
+
+			if p1 == p2:
+				continue
+
+			action = self.bounding_param_to_actions(p1, p2)
+			vector = action.vector
+			point = action.point
+
+			f = self.box.GetWorldVector(localVector=vector)
+			p = self.box.GetWorldPoint(localPoint=point)
+			self.box.ApplyForce(f, p, True)
+			self.world.Step(TIME_STEP, 10, 10)
+			self.box.linearVelocity[0] = 0.0
+			self.box.linearVelocity[1] = 0.0
+			self.box.angularVelocity = 0.0
+
+			for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+			pygame.display.flip()
+
+			ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+			if save_image:
+				pygame.image.save(self.screen, save_image_path+"anim"+str(i+1)+".png")
+
+			if (euclidean_dist(self.box.position, self.goal_pos) < INTERVAL and abs(self.box.angle - self.goal_angle) < INTERVAL):
+				return i+1
+
+			if euclidean_dist(self.box.position, self.goal_pos) + 0.1*abs(self.box.angle - self.goal_angle) < closest_dist:
+				closest_dist = euclidean_dist(self.box.position, self.goal_pos) + 0.1*abs(self.box.angle - self.goal_angle)
+				closest = i+1
+
+		pygame.display.quit()
+		pygame.quit()
+
+		return closest
+
+# class TestModel:
+# 	def __init__(self):
+# 		pass
+
+# 	def predict(self, state, goal_state):
+# 		return (0, 4)

@@ -1,6 +1,8 @@
 import numpy as np
 import tensorflow as tf
 import random
+from graph_planner import *
+from graph_planner_env import *
 
 def weight_variable(shape, name=''):
 	initial = tf.truncated_normal(shape, stddev=0.1)
@@ -173,5 +175,19 @@ def train(iterations=1000000, batchsize=128, path="param_data/"):
 
 	sess.close()
 
-if __name__ == "__main__":
-	train()
+def evaluate(image_path, rollouts=1000, horizon=50):
+	tf_config = tf.ConfigProto() # fill in w/ custom config 
+	tf_config.gpu_options.allow_growth = True
+	sess = tf.Session(config=tf_config)
+	model = DiscreteDoubleBnFittingModel(sess=sess)
+	model.sess.__enter__()
+	# tf.global_variables_initializer().run()
+	model.load("model/discrete_double_bn_model_sym1.ckpt")
+	for i in range(rollouts):
+		env = get_random_regular_polygon_env()
+		print(env.rollout_model_policy(model, image_path+"/"+str(i), horizon=horizon))
+
+
+# if __name__ == "__main__":
+	# train()
+	# evaluate("images")
