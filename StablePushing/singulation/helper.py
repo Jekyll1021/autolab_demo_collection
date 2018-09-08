@@ -99,7 +99,7 @@ def normalize(vector):
 	output:
 	vector: (x, y) force vector with normalized magnitude 1
 	"""
-	mag = math.sqrt(vector[0] ** 2 + vector[1] ** 2)
+	mag = math.sqrt(vector[0] ** 2 + vector[1] ** 2)+1e-6
 	return vector[0] / mag, vector[1] / mag
 
 def side_of_point_on_line(start_pt, end_pt, query_pt):
@@ -134,7 +134,7 @@ def two_line_intersect(e1, e2, e3, e4):
 	f2 = (e3[0]*e4[1] - e3[1]*e4[0])
 	if denom == 0:
 		return None
-	pt = ((f1*(e3[0] - e4[0]) - f2 * (e1[0] - e2[0])) / (denom+1e-8), (f1*(e3[1] - e4[1]) - f2 * (e1[1] - e2[1]))/(denom+1e-8))
+	pt = ((f1*(e3[0] - e4[0]) - f2 * (e1[0] - e2[0])) / (denom+1e-6), (f1*(e3[1] - e4[1]) - f2 * (e1[1] - e2[1]))/(denom+1e-6))
 	kap = np.dot(np.array(pt) - np.array(e3), np.array(e4) - np.array(e3))
 	kab = np.dot(np.array(e4) - np.array(e3), np.array(e4) - np.array(e3))
 	if kap > kab or kap < 0:
@@ -145,7 +145,7 @@ def two_line_intersect(e1, e2, e3, e4):
 
 def find_max_contact_range(vertices, e1, e2):
 	p = np.array(e1) - np.array(e2)
-	vector = (1, -(p[0] / p[1]))
+	vector = (1, -(p[0] / (p[1] + 1e-6)))
 	# print(vector)
 	max_contact_range = 0
 
@@ -205,7 +205,7 @@ def find_collision_dist_convex_hull(start_pt, vector, centroid, vertices):
 	for i in range(len(vertices)):
 		intersect = two_line_intersect(start_pt, end_pt, abs_vertices[i], abs_vertices[(i + 1) % len(abs_vertices)])
 		if not intersect is None:
-			if (np.array(intersect) - np.array(start_pt))[0] / vector[0] > 0 or (np.array(intersect) - np.array(start_pt))[1] / vector[1] > 0:
+			if (np.array(intersect) - np.array(start_pt))[0] / (vector[0] + 1e-6) > 0 or (np.array(intersect) - np.array(start_pt))[1] / (vector[1] + 1e-6) > 0:
 				dist = min(dist, euclidean_dist(intersect, start_pt))
 	return dist
 
@@ -215,7 +215,7 @@ def find_free_space(start_pt, vector, object_lst):
 def parametrize_by_bounding_circle(start_pt, vector, centroid, bounding_circle_radius):
 	"""parametrize as p1 to p2"""
 	point = (start_pt[0] - centroid[0], start_pt[1] - centroid[1])
-	a = (vector[0]**2 + vector[1]**2)
+	a = (vector[0]**2 + vector[1]**2) + 1e-6
 	b = (2 * point[0] * vector[0] + 2 * point[1] * vector[1])
 	c = (point[0] ** 2 + point[1] ** 2 - bounding_circle_radius ** 2)
 	if (b**2 - 4 * a * c) < 0:
@@ -248,3 +248,30 @@ def rotatePt(point, vector):
 	x = point[0]*math.cos(radius)-point[1]*math.sin(radius)
 	y = point[0]*math.sin(radius)+point[1]*math.cos(radius)
 	return (x, y)
+
+def findLoads(vertices, start_pt, end_pt):
+	left_points = []
+	right_points = []
+	for i in range(len(vertices)):
+		curr = vertices[i]
+		next = vertices[(i+1) % len(vertices)]
+		side_c = side_of_point_on_line(start_pt, end_pt, curr)
+		side_n = side_of_point_on_line(start_pt, end_pt, next)
+		# print(curr, next, side_c, side_n)
+		if side_c <= 0:
+			left_points.append(curr)
+		if side_c >= 0:
+			right_points.append(curr)
+		if side_c != side_n:
+			print(curr, next)
+			intersect = two_line_intersect(start_pt, end_pt, curr, next)
+			print(intersect)
+			if not intersect is None:
+				left_points.append(intersect)
+				right_points.append(intersect)
+	# print(left_points)
+	left = create_convex_hull(np.array(left_points))
+	right = create_convex_hull(np.array(right_points))
+	v = compute_centroid(vertices)
+	return euclidean_dist(compute_centroid(left), v), euclidean_dist(compute_centroid(right), v)
+
