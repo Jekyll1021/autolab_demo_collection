@@ -13,9 +13,10 @@ import Box2D
 from Box2D.b2 import (world, polygonShape, circleShape, staticBody, dynamicBody, kinematicBody)
 
 from graph_planner import *
+import copy
 
 PPM = 20.0  # pixels per meter
-TIME_STEP = 1/2
+TIME_STEP = 2/3
 SCREEN_WIDTH, SCREEN_HEIGHT = 240, 180
 INTERVAL = 0.1
 
@@ -170,6 +171,7 @@ class PolygonEnv:
 		self.goal_angle = goal_angle
 		self.world = world(gravity=(0, 0), doSleep=True)
 		self.vertices = vertices
+		self.use_param = use_param
 
 		# figure out center of mass
 		self.centroid = compute_centroid(vertices)
@@ -277,6 +279,7 @@ class PolygonEnv:
 		return self.box.position, self.box.angle
 
 	def get_goal_image(self):
+		self.screen.fill((0, 0, 0, 0))
 
 		def my_draw_polygon(polygon, body, fixture):
 			vertices = [(body.transform * v) * PPM for v in polygon.vertices]
@@ -299,6 +302,37 @@ class PolygonEnv:
 					fixture.shape.draw(body, fixture)
 
 		img = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+		pygame.image.save(self.screen, "goal.png")
+
+
+		return img
+
+	def get_start_image(self):
+		self.screen.fill((0, 0, 0, 0))
+
+		def my_draw_polygon(polygon, body, fixture):
+			vertices = [(body.transform * v) * PPM for v in polygon.vertices]
+			vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
+			k = body.userData
+
+			if k == None:
+			    k = 'default'
+
+			pygame.draw.polygon(self.screen, (200, 200, 200, 255), vertices, 0)
+
+
+		polygonShape.draw = my_draw_polygon
+
+		self.box.position = self.original_pos
+		self.box.angle = 0
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		img = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+		pygame.image.save(self.screen, "start.png")
+
 
 		return img
 
@@ -473,14 +507,16 @@ class PolygonEnv:
 
 		return obs, goal_obs, acts, bounding_circle_acts, bounding_circle_normalized_acts
 
-	def rollout_model_policy(self, model, save_image_path, save_image=True, horizon=50):
+	def rollout_predict_model_policy(self, model, save_image_path, save_image=True, horizon=50):
 		"""rollout for double bn fitting"""
 
 		discrete_pts_lst = [(p[0]*self.bounding_circle_radius, p[1]*self.bounding_circle_radius) for p in Discrete_Points]
 
-		self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
-		pygame.display.set_caption('example')
-		pygame.display.iconify()
+		if not self.use_param:
+			self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
+			pygame.display.set_caption('example')
+			pygame.display.iconify()
+
 		self.screen.fill((0, 0, 0, 0))
 		pygame.display.flip()
 
@@ -568,6 +604,332 @@ class PolygonEnv:
 		pygame.quit()
 
 		return closest
+
+	def rollout_classification_model_policy(self, model, save_image_path, save_image=True, horizon=50):
+		"""rollout for double bn fitting"""
+
+		discrete_pts_lst = [(p[0]*self.bounding_circle_radius, p[1]*self.bounding_circle_radius) for p in Discrete_Points]
+
+		if not self.use_param:
+			self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
+			pygame.display.set_caption('example')
+			pygame.display.iconify()
+
+		self.screen.fill((0, 0, 0, 0))
+		pygame.display.flip()
+
+		def my_draw_polygon(polygon, body, fixture):
+			vertices = [(body.transform * v) * PPM for v in polygon.vertices]
+			vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
+			k = body.userData
+
+			if k == None:
+			    k = 'default'
+
+			pygame.draw.polygon(self.screen, (200, 200, 200, 255), vertices, 0)
+
+		polygonShape.draw = my_draw_polygon
+
+		self.box.position = self.goal_pos
+		self.box.angle = self.goal_angle
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		goal_ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+		if save_image:
+			pygame.image.save(self.screen, save_image_path+"goal.png")
+
+		self.screen.fill((0, 0, 0, 0))
+
+		self.box.position = self.original_pos
+		self.box.angle = 0.0
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+		if save_image:
+			pygame.image.save(self.screen, save_image_path+"anim0.png")
+
+		closest = 0
+		closest_dist = euclidean_dist(self.box.position, self.goal_pos)
+		closest_angle = abs(self.box.angle - self.goal_angle)
+
+		for i in range(horizon):
+			self.screen.fill((0, 0, 0, 0))
+			"""TODO: fill out action selection"""
+
+			action = self.actions[0]
+			prob = 0
+
+			for a in self.actions:
+				curr_prob = model.predict(ob, goal_ob, [x / self.bounding_circle_radius for x in self.parametrize_by_bounding_circle(a)])[1]
+				if curr_prob > prob:
+					action = a
+					prob = curr_prob
+
+			vector = action.vector
+			point = action.point
+
+			f = self.box.GetWorldVector(localVector=vector)
+			p = self.box.GetWorldPoint(localPoint=point)
+			self.box.ApplyForce(f, p, True)
+			self.world.Step(TIME_STEP, 10, 10)
+			self.box.linearVelocity[0] = 0.0
+			self.box.linearVelocity[1] = 0.0
+			self.box.angularVelocity = 0.0
+
+			for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+			pygame.display.flip()
+
+			ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+			if save_image:
+				pygame.image.save(self.screen, save_image_path+"anim"+str(i+1)+".png")
+
+			if (euclidean_dist(self.box.position, self.goal_pos) < INTERVAL and abs(self.box.angle - self.goal_angle) < INTERVAL):
+				return i+1
+
+			if euclidean_dist(self.box.position, self.goal_pos) + 0.1*abs(self.box.angle - self.goal_angle) < closest_dist:
+				closest_dist = euclidean_dist(self.box.position, self.goal_pos)
+				closest_angle = abs(self.box.angle - self.goal_angle)
+				closest = i+1
+
+		pygame.display.quit()
+		pygame.quit()
+
+		return closest_dist / euclidean_dist(self.box.position, self.goal_pos), closest_angle / abs(self.box.angle - self.goal_angle), closest
+
+	def rollout_classification_abs_rot_model_policy(self, model, save_image_path, save_image=True, horizon=50):
+		"""rollout for double bn fitting"""
+
+		action_space_param = []
+		for p1 in Discrete_Points:
+			for p2 in Discrete_Points:
+				if p1 != p2:
+					action_space_param.append([p1[0], p1[1], p2[0], p2[1]])
+
+		if not self.use_param:
+			self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
+			pygame.display.set_caption('example')
+			pygame.display.iconify()
+
+		self.screen.fill((0, 0, 0, 0))
+		pygame.display.flip()
+
+		def my_draw_polygon(polygon, body, fixture):
+			vertices = [(body.transform * v) * PPM for v in polygon.vertices]
+			vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
+			k = body.userData
+
+			if k == None:
+			    k = 'default'
+
+			pygame.draw.polygon(self.screen, (200, 200, 200, 255), vertices, 0)
+
+		polygonShape.draw = my_draw_polygon
+
+		self.box.position = self.goal_pos
+		self.box.angle = self.goal_angle
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		goal_ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+		if save_image:
+			pygame.image.save(self.screen, save_image_path+"goal.png")
+
+		self.screen.fill((0, 0, 0, 0))
+
+		self.box.position = self.original_pos
+		self.box.angle = 0.0
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+		if save_image:
+			pygame.image.save(self.screen, save_image_path+"anim0.png")
+
+		closest = 0
+		closest_dist = euclidean_dist(self.box.position, self.goal_pos)
+		closest_angle = abs(self.box.angle - self.goal_angle)
+
+		for i in range(horizon):
+			self.screen.fill((0, 0, 0, 0))
+			"""TODO: fill out action selection"""
+
+			action = self.actions[0]
+			prob = 0
+
+			for ap in action_space_param:
+				curr_prob = model.predict(ob, goal_ob, ap)[1]
+				if curr_prob > prob:
+					action_p = ap
+					prob = curr_prob
+
+			param_a = copy.deepcopy(action_p)
+			param_a[0] = action_p[0] * math.cos(-polygon_env.box.angle) - action_p[1] * math.sin(-polygon_env.box.angle)
+			param_a[1] = action_p[0] * math.sin(-polygon_env.box.angle) + action_p[1] * math.cos(-polygon_env.box.angle)
+			param_a[2] = action_p[2] * math.cos(-polygon_env.box.angle) - action_p[3] * math.sin(-polygon_env.box.angle)
+			param_a[3] = action_p[2] * math.sin(-polygon_env.box.angle) + action_p[3] * math.cos(-polygon_env.box.angle)
+			a = polygon_env.bounding_param_to_actions((param_a[0]*polygon_env.bounding_circle_radius, param_a[1]*polygon_env.bounding_circle_radius), \
+			(param_a[2]*polygon_env.bounding_circle_radius, param_a[3]*polygon_env.bounding_circle_radius))
+
+			f = self.box.GetWorldVector(localVector=vector)
+			p = self.box.GetWorldPoint(localPoint=point)
+			self.box.ApplyForce(f, p, True)
+			self.world.Step(TIME_STEP, 10, 10)
+			self.box.linearVelocity[0] = 0.0
+			self.box.linearVelocity[1] = 0.0
+			self.box.angularVelocity = 0.0
+
+			for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+			pygame.display.flip()
+
+			ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+			if save_image:
+				pygame.image.save(self.screen, save_image_path+"anim"+str(i+1)+".png")
+
+			if (euclidean_dist(self.box.position, self.goal_pos) < INTERVAL and abs(self.box.angle - self.goal_angle) < INTERVAL):
+				return i+1
+
+			if euclidean_dist(self.box.position, self.goal_pos) + 0.1*abs(self.box.angle - self.goal_angle) < closest_dist:
+				closest_dist = euclidean_dist(self.box.position, self.goal_pos)
+				closest_angle = abs(self.box.angle - self.goal_angle)
+				closest = i+1
+
+		pygame.display.quit()
+		pygame.quit()
+
+		return closest_dist / euclidean_dist(self.box.position, self.goal_pos), closest_angle / abs(self.box.angle - self.goal_angle), closest
+
+	def rollout_classification_rot_model_policy(self, model, save_image_path, save_image=True, horizon=3):
+		"""rollout for double bn fitting"""
+
+		action = [Discrete_Points[0][0], Discrete_Points[0][1], Discrete_Points[2][0], Discrete_Points[2][1]]
+
+		if not self.use_param:
+			self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
+			pygame.display.set_caption('example')
+			pygame.display.iconify()
+
+		self.screen.fill((0, 0, 0, 0))
+		pygame.display.flip()
+
+		def my_draw_polygon(polygon, body, fixture):
+			vertices = [(body.transform * v) * PPM for v in polygon.vertices]
+			vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
+			k = body.userData
+
+			if k == None:
+			    k = 'default'
+
+			pygame.draw.polygon(self.screen, (200, 200, 200, 255), vertices, 0)
+
+		polygonShape.draw = my_draw_polygon
+
+		self.box.position = self.goal_pos
+		self.box.angle = self.goal_angle
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		goal_ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+		if save_image:
+			pygame.image.save(self.screen, save_image_path+"goal.png")
+
+		self.screen.fill((0, 0, 0, 0))
+
+		self.box.position = self.original_pos
+		self.box.angle = 0.0
+
+		for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+		ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+		if save_image:
+			pygame.image.save(self.screen, save_image_path+"anim0.png")
+
+		closest = 0
+		closest_dist = euclidean_dist(self.box.position, self.goal_pos)
+		closest_angle = abs(self.box.angle - self.goal_angle) % (math.pi/2)
+
+		for i in range(horizon):
+			self.screen.fill((0, 0, 0, 0))
+			"""TODO: fill out action selection"""
+
+			rot_prob = model.predict(ob, goal_ob)[1]
+			if rot_prob > 0.5:
+				action_p = action
+			else:
+				for body in self.world.bodies:
+					for fixture in body.fixtures:
+						fixture.shape.draw(body, fixture)
+				# pygame.display.flip()
+				pygame.image.save(self.screen, save_image_path+"not_rotating"+str(i)+".png")
+				return euclidean_dist(self.box.position, self.goal_pos), (abs(self.box.angle + math.pi*2 - self.goal_angle) % (math.pi/2)), closest
+
+			param_a = copy.deepcopy(action_p)
+			param_a[0] = action_p[0] * math.cos(-self.box.angle) - action_p[1] * math.sin(-self.box.angle)
+			param_a[1] = action_p[0] * math.sin(-self.box.angle) + action_p[1] * math.cos(-self.box.angle)
+			param_a[2] = action_p[2] * math.cos(-self.box.angle) - action_p[3] * math.sin(-self.box.angle)
+			param_a[3] = action_p[2] * math.sin(-self.box.angle) + action_p[3] * math.cos(-self.box.angle)
+			a = self.bounding_param_to_actions((param_a[0]*self.bounding_circle_radius, param_a[1]*self.bounding_circle_radius), \
+			(param_a[2]*self.bounding_circle_radius, param_a[3]*self.bounding_circle_radius))
+
+			f = self.box.GetWorldVector(localVector=a.vector)
+			p = self.box.GetWorldPoint(localPoint=a.point)
+			self.box.ApplyForce(f, p, True)
+			self.world.Step(TIME_STEP, 10, 10)
+			self.box.linearVelocity[0] = 0.0
+			self.box.linearVelocity[1] = 0.0
+			self.box.angularVelocity = 0.0
+
+			for body in self.world.bodies:
+				for fixture in body.fixtures:
+					fixture.shape.draw(body, fixture)
+
+			# pygame.display.flip()
+
+			ob = np.array(pygame.surfarray.array3d(self.screen)).reshape(240 * 180 * 3, )
+
+			if save_image:
+				pygame.image.save(self.screen, save_image_path+"anim"+str(i+1)+".png")
+
+			if (euclidean_dist(self.box.position, self.goal_pos) < INTERVAL and abs(self.box.angle - self.goal_angle) < INTERVAL):
+				return i+1
+
+			if euclidean_dist(self.box.position, self.goal_pos) + 0.1*abs(self.box.angle - self.goal_angle) < closest_dist:
+				closest_dist = euclidean_dist(self.box.position, self.goal_pos)
+				closest_angle = abs(self.box.angle - self.goal_angle)
+				closest = i+1
+
+		pygame.display.quit()
+		pygame.quit()
+
+		return euclidean_dist(self.box.position, self.goal_pos), abs(self.box.angle + math.pi*2 - self.goal_angle)% (math.pi/2), closest
+
 
 # class TestModel:
 # 	def __init__(self):

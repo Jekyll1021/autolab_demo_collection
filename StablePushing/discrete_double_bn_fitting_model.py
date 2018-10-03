@@ -22,11 +22,12 @@ def max_pool_3x3(x, name=''):
 	return tf.nn.max_pool(x, ksize=[1, 3, 3, 1], strides=[1, 3, 3, 1], padding='SAME')
 
 class DiscreteDoubleBnFittingModel:
-	def __init__(self, learning_rate=1e-5, sess=tf.Session()):
+	def __init__(self, sess=tf.Session()):
 		self.sess = sess
-		self.learning_rate = learning_rate
 
 		# placeholder definition
+		self.learning_rate = tf.placeholder(tf.float32, [])
+
 		self.state = tf.placeholder(tf.float32, [None, 240*180*3], name="curr_state")
 		self.goal_state = tf.placeholder(tf.float32, [None, 240*180*3], name="goal_state")
 		self.a0 = tf.placeholder(tf.float32, [None, 2], name="a0")
@@ -185,7 +186,7 @@ def evaluate(image_path, rollouts=1000, horizon=50):
 	model.load("model/discrete_double_bn_model_sym1.ckpt")
 	for i in range(rollouts):
 		env = get_random_regular_polygon_env()
-		print(env.rollout_model_policy(model, image_path+"/"+str(i), horizon=horizon))
+		print(env.rollout_predict_model_policy(model, image_path+"/"+str(i), horizon=horizon))
 
 
 # if __name__ == "__main__":
